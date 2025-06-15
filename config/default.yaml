@@ -56,9 +56,9 @@ training:
 
 # Data Configuration
 data:
-  replay_dir: "reduced_dataset_5/replays/npy"
-  beatmap_dir: "reduced_dataset_5/beatmaps"
-  csv_path: "reduced_dataset_5/index.csv"
+  replay_dir: "reduced_dataset_1000/replays/npy"
+  beatmap_dir: "reduced_dataset_1000/beatmaps"
+  csv_path: "reduced_dataset_1000/index.csv"
   
   # Data Splits
   train_split: 0.7
