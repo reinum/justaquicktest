@@ -2,21 +2,21 @@
 
 # Model Architecture
 model:
-  d_model: 512
-  n_heads: 8
-  n_layers: 6
-  d_ff: 2048
+  d_model: 384  # Reduced for 4GB VRAM
+  n_heads: 6  # Reduced to be compatible with d_model=384
+  n_layers: 4  # Reduced for 4GB VRAM
+  d_ff: 1536  # Reduced for 4GB VRAM
   dropout: 0.1
-  max_seq_length: 2048
-  cursor_history_length: 64
-  beatmap_context_length: 128
+  max_seq_length: 512  # Reduced to match sequence_length
+  cursor_history_length: 32  # Reduced for 4GB VRAM
+  beatmap_context_length: 64  # Reduced for 4GB VRAM
   use_positional_encoding: true
   use_gradient_checkpointing: true
   use_flash_attention: true
 
 # Training Configuration
 training:
-  batch_size: 8  # Reduced for 4GB VRAM
+  batch_size: 4  # Further reduced for 4GB VRAM
   learning_rate: 1e-4
   weight_decay: 0.01
   warmup_steps: 1000
@@ -26,7 +26,7 @@ training:
   fp16: true
   optimizer: "adamw"
   scheduler: "cosine_with_warmup"
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 8  # Increased to maintain effective batch size
   
   # Curriculum Learning
   use_curriculum_learning: true
@@ -66,7 +66,7 @@ data:
   test_split: 0.1
   
   # Sequence Processing
-  sequence_length: 1024
+  sequence_length: 512  # Reduced for 4GB VRAM
   overlap_ratio: 0.5
   min_sequence_length: 256
   
