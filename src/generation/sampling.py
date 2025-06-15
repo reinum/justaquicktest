@@ -317,8 +317,8 @@ class CursorSampling:
             if previous_pos.dim() == 3:
                 previous_pos = previous_pos.squeeze(1)  # [batch, 1, 2] -> [batch, 2]
             
-            # Limit maximum movement
-            max_movement = min(screen_bounds) * 0.1  # 10% of smaller dimension
+            # Limit maximum movement - increased from 0.1 to 0.5 for realistic osu! movement
+            max_movement = min(screen_bounds) * 0.5  # 50% of smaller dimension (~192 pixels)
             
             movement = cursor_pos - previous_pos
             movement_magnitude = torch.norm(movement, dim=-1, keepdim=True)

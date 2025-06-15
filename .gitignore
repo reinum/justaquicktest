@@ -144,8 +144,11 @@ data/
 
 # Generated files
 generated_*/
+generated_replay.npz
+final_model.pt
 output/
 results/
+debug_output/
 *.log
 *.out
 *.err
@@ -166,4 +169,29 @@ Thumbs.db
 *.swo
 *~
 
+# Additional Python files
 *.pyc
+
+# Debug and analysis outputs
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Model checkpoints and training artifacts
+checkpoint_*/
+runs/
+tensorboard/
+
+# IDE and editor files
+*.sublime-*
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# Project specific
+ai_replay_final.osr
+cursor_analysis.png
+cursor_bias_analysis.png
+replay_analysis.png

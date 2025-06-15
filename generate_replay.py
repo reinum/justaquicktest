@@ -63,13 +63,13 @@ generator = ReplayGenerator(
 )
 
 # Load checkpoint
-checkpoint_path = Path('checkpoints/best_model.pt')
+checkpoint_path = Path('final_model.pt')
 if checkpoint_path.exists():
     generator.load_checkpoint(checkpoint_path)
     logger.info("Model loaded successfully")
 else:
-    logger.error(f"Checkpoint not found: {checkpoint_path}")
-    exit(1)
+    logger.warning(f"Checkpoint not found: {checkpoint_path}")
+    logger.warning("Using untrained model - this will generate random outputs")
 
 # Generate a replay
 beatmap_path = Path('testmap.osu')

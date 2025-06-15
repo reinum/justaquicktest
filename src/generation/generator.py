@@ -45,6 +45,7 @@ class ReplayGenerator:
         self.model_config = model_config
         self.device = device
         self.logger = logger or logging.getLogger(__name__)
+        self.model_trained = False  # Track if trained weights are loaded
         
         # Set model to evaluation mode
         self.model.eval()
@@ -93,6 +94,7 @@ class ReplayGenerator:
         """Load model from checkpoint."""
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model_trained = True  # Mark that trained weights are loaded
         self.logger.info(f"Model loaded from {checkpoint_path}")
     
     def generate_replay(self, 
@@ -176,6 +178,9 @@ class ReplayGenerator:
         
         key_sequence = torch.zeros((1, seq_len, 4), dtype=torch.float32)
         
+        # Initialize slider sequence (placeholder for now)
+        slider_sequence = torch.zeros((1, seq_len, 13), dtype=torch.float32)  # 13 features as expected by SliderEncoder
+        
         input_data = {
             'beatmap_features': beatmap_features.unsqueeze(0),
             'timestamps': timestamps,
@@ -183,6 +188,7 @@ class ReplayGenerator:
             'mod_encoding': mod_tensor,
             'cursor_pos': cursor_sequence,
             'key_press': key_sequence,
+            'slider_data': slider_sequence,
             'attention_mask': torch.ones((1, seq_len), dtype=torch.bool)
         }
         
@@ -255,6 +261,7 @@ class ReplayGenerator:
                     'mod_encoding': input_data['mod_encoding'][:, :step+1],
                     'cursor_pos': cursor_sequence[:, :step+1],
                     'key_press': key_sequence[:, :step+1],
+                    'slider_data': input_data['slider_data'][:, :step+1],
                     'attention_mask': input_data['attention_mask'][:, :step+1]
                 }
                 
@@ -263,11 +270,13 @@ class ReplayGenerator:
                 beatmap_data = step_input['beatmap_features'].transpose(0, 1)  # [1, seq, features] -> [seq, 1, features]
                 timing_data = step_input['timestamps'].unsqueeze(-1).transpose(0, 1)  # [1, seq] -> [seq, 1, 1]
                 key_data = step_input['key_press'].transpose(0, 1)  # [1, 1, 4] -> [1, 1, 4]
+                slider_data = step_input['slider_data'].transpose(0, 1)  # [1, seq, 13] -> [seq, 1, 13]
                 accuracy_data = step_input['accuracy_target'].transpose(0, 1)  # [1, seq] -> [seq, 1]
                 
                 outputs = self.model(
                     cursor_data=cursor_data,
                     beatmap_data=beatmap_data,
+                    slider_data=slider_data,
                     timing_data=timing_data,
                     key_data=key_data,
                     accuracy_target=accuracy_data,
@@ -278,10 +287,28 @@ class ReplayGenerator:
                 # Model outputs are (seq_len, batch_size, features)
                 print(f"DEBUG: outputs['cursor_pred'].shape: {outputs['cursor_pred'].shape}")
                 print(f"DEBUG: outputs['key_pred'].shape: {outputs['key_pred'].shape}")
-                cursor_logits = outputs['cursor_pred'][-1, :, :]  # [1, 2]
-                key_logits = outputs['key_pred'][-1, :, :]      # [1, 4]
+                cursor_logits = outputs['cursor_pred'][:, -1, :]  # [batch_size, 2]
+                key_logits = outputs['key_pred'][:, -1, :]      # [batch_size, 4]
+                
+                # Debug model training status
+                print(f"DEBUG: model_trained flag: {self.model_trained}")
+                
+                # TEMPORARY FIX: Scale cursor logits for untrained models
+                # Check both model_trained flag and logit magnitude
+                logit_magnitude = torch.abs(cursor_logits).max().item()
+                print(f"DEBUG: cursor_logits max magnitude: {logit_magnitude:.4f}")
+                
+                if not self.model_trained or logit_magnitude < 0.1:
+                    original_logits = cursor_logits.clone()
+                    cursor_logits = cursor_logits * 150.0  # Scale up small untrained model outputs
+                    print(f"DEBUG: SCALING APPLIED - Reason: model_trained={self.model_trained}, magnitude={logit_magnitude:.4f}")
+                    print(f"DEBUG: SCALING APPLIED - Original logits: [{original_logits[0, 0].item():.4f}, {original_logits[0, 1].item():.4f}]")
+                    print(f"DEBUG: SCALING APPLIED - Scaled logits: [{cursor_logits[0, 0].item():.4f}, {cursor_logits[0, 1].item():.4f}]")
+                
                 print(f"DEBUG: cursor_logits.shape: {cursor_logits.shape}")
                 print(f"DEBUG: key_logits.shape: {key_logits.shape}")
+                print(f"DEBUG: cursor_logits values: [{cursor_logits[0, 0].item():.4f}, {cursor_logits[0, 1].item():.4f}]")
+                print(f"DEBUG: cursor_logits stats - min: {cursor_logits.min().item():.4f}, max: {cursor_logits.max().item():.4f}, mean: {cursor_logits.mean().item():.4f}")
                 print(f"DEBUG: cursor_sequence.shape: {cursor_sequence.shape}")
                 print(f"DEBUG: step: {step}")
                 
