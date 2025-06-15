@@ -415,20 +415,49 @@ class OsuTrainer:
                     )
                     loss_dict = self.criterion(outputs, batch)
                 
-                # Accumulate losses
+                # Check for NaN/inf in loss values
+                has_nan = False
                 for key, value in loss_dict.items():
-                    val_losses[key] += value.item()
+                    loss_val = value.item()
+                    if torch.isnan(value) or torch.isinf(value):
+                        self.logger.warning(f"NaN/Inf detected in {key}: {loss_val}")
+                        has_nan = True
+                    else:
+                        val_losses[key] += loss_val
                 
-                # Calculate metrics
-                self.metrics.update(outputs, batch)
-                batch_metrics = self.metrics.compute()
-                for key, value in batch_metrics.items():
-                    val_metrics[key] += value
+                # Skip metrics calculation if NaN detected
+                if not has_nan:
+                    # Calculate metrics
+                    self.metrics.update(outputs, batch)
+                    batch_metrics = self.metrics.compute()
+                    for key, value in batch_metrics.items():
+                        if not (torch.isnan(torch.tensor(value)) or torch.isinf(torch.tensor(value))):
+                            val_metrics[key] += value
+                        else:
+                            self.logger.warning(f"NaN/Inf detected in metric {key}: {value}")
+                else:
+                    self.logger.warning("Skipping batch due to NaN/Inf in loss")
         
         # Average losses and metrics
         num_batches = len(self.val_loader)
+        
+        # Handle case where no valid batches were processed
+        if not val_losses:
+            self.logger.error("No valid validation batches processed - all contained NaN/Inf")
+            # Return NaN for all expected metrics to trigger early stopping
+            return {
+                'total_loss': float('nan'),
+                'cursor_loss': float('nan'),
+                'key_loss': float('nan'),
+                'temporal_loss': float('nan'),
+                'accuracy': float('nan')
+            }
+        
         avg_losses = {k: v / num_batches for k, v in val_losses.items()}
         avg_metrics = {k: v / num_batches for k, v in val_metrics.items()}
+        
+        # Log validation summary
+        self.logger.info(f"Validation completed: {len(val_losses)} loss types, {len(val_metrics)} metrics")
         
         return {**avg_losses, **avg_metrics}
     

@@ -22,8 +22,8 @@ training:
   warmup_steps: 1000
   max_epochs: 50  # Reduced for initial training
   gradient_clip_norm: 1.0
-  use_mixed_precision: true
-  fp16: true
+  use_mixed_precision: false
+  fp16: false
   optimizer: "adamw"
   scheduler: "cosine_with_warmup"
   gradient_accumulation_steps: 8  # Increased to maintain effective batch size
@@ -42,7 +42,7 @@ training:
   
   # Validation
   val_check_interval: 500
-  early_stopping_patience: 5
+  early_stopping_patience: 15
   
   # Checkpointing
   save_interval: 1  # Save every epoch
