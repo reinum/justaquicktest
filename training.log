@@ -1,0 +1,65 @@
+2025-06-15 11:43:58,924 - Trainer initialized with 33651206 parameters
+2025-06-15 11:43:58,924 - Starting training...
+2025-06-15 11:44:14,679 - Batch 1/1 - Loss: 0.638179 - LR: 6.00e-05
+2025-06-15 11:44:45,688 - Epoch 1/50 - Train Loss: 0.638179 - Val Loss: 0.488283 - LR: 6.00e-05
+2025-06-15 11:44:45,688 - Samples/sec: 0.08
+2025-06-15 11:44:45,688 - Grad Norm: 1.2842e+01
+2025-06-15 11:44:45,689 - Model Parameters: 33,651,206
+2025-06-15 11:44:45,689 - Dataset Size: 2
+2025-06-15 11:44:45,689 -   Train Loss: 0.6382
+2025-06-15 11:44:45,689 -   Val Loss: 0.4883
+2025-06-15 11:44:47,201 - Checkpoint saved to checkpoints\model_epoch_0001.pt
+2025-06-15 11:44:47,765 - Checkpoint saved to checkpoints\latest_model.pt
+2025-06-15 11:45:04,804 - Batch 1/1 - Loss: 0.490632 - LR: 7.00e-05
+2025-06-15 11:45:36,164 - Epoch 2/50 - Train Loss: 0.490632 - Val Loss: 0.385912 - LR: 7.00e-05
+2025-06-15 11:45:36,164 - Samples/sec: 0.07
+2025-06-15 11:45:36,165 - Grad Norm: 6.1619e+00
+2025-06-15 11:45:36,165 -   Train Loss: 0.4906
+2025-06-15 11:45:36,165 -   Val Loss: 0.3859
+2025-06-15 11:45:37,716 - Checkpoint saved to checkpoints\model_epoch_0002.pt
+2025-06-15 11:45:38,293 - Checkpoint saved to checkpoints\latest_model.pt
+2025-06-15 11:45:55,683 - Batch 1/1 - Loss: 0.402880 - LR: 8.00e-05
+2025-06-15 11:46:26,381 - Epoch 3/50 - Train Loss: 0.402880 - Val Loss: 0.371193 - LR: 8.00e-05
+2025-06-15 11:46:26,381 - Samples/sec: 0.07
+2025-06-15 11:46:26,381 - Grad Norm: 2.4248e+00
+2025-06-15 11:46:26,381 -   Train Loss: 0.4029
+2025-06-15 11:46:26,381 -   Val Loss: 0.3712
+2025-06-15 11:46:28,013 - Checkpoint saved to checkpoints\model_epoch_0003.pt
+2025-06-15 11:46:28,622 - Checkpoint saved to checkpoints\latest_model.pt
+2025-06-15 11:46:45,435 - Batch 1/1 - Loss: 0.376857 - LR: 9.00e-05
+2025-06-15 11:47:17,601 - Epoch 4/50 - Train Loss: 0.376857 - Val Loss: 0.320922 - LR: 9.00e-05
+2025-06-15 11:47:17,601 - Samples/sec: 0.07
+2025-06-15 11:47:17,601 - Grad Norm: 2.4012e+00
+2025-06-15 11:47:17,602 -   Train Loss: 0.3769
+2025-06-15 11:47:17,602 -   Val Loss: 0.3209
+2025-06-15 11:47:18,793 - Checkpoint saved to checkpoints\model_epoch_0004.pt
+2025-06-15 11:47:19,825 - Checkpoint saved to checkpoints\latest_model.pt
+2025-06-15 11:47:38,150 - Batch 1/1 - Loss: 0.334855 - LR: 1.00e-04
+2025-06-15 11:48:10,185 - Epoch 5/50 - Train Loss: 0.334855 - Val Loss: 0.297925 - LR: 1.00e-04
+2025-06-15 11:48:10,185 - Samples/sec: 0.07
+2025-06-15 11:48:10,185 - Grad Norm: 1.0322e+00
+2025-06-15 11:48:10,185 -   Train Loss: 0.3349
+2025-06-15 11:48:10,186 -   Val Loss: 0.2979
+2025-06-15 11:48:11,764 - Checkpoint saved to checkpoints\model_epoch_0005.pt
+2025-06-15 11:48:12,358 - Checkpoint saved to checkpoints\latest_model.pt
+2025-06-15 11:48:30,476 - Batch 1/1 - Loss: 0.315234 - LR: 9.99e-05
+2025-06-15 11:49:02,771 - Epoch 6/50 - Train Loss: 0.315234 - Val Loss: 0.276738 - LR: 9.99e-05
+2025-06-15 11:49:02,772 - Samples/sec: 0.07
+2025-06-15 11:49:02,772 - Grad Norm: 1.9444e+00
+2025-06-15 11:49:02,772 -   Train Loss: 0.3152
+2025-06-15 11:49:02,772 -   Val Loss: 0.2767
+2025-06-15 11:49:04,104 - Checkpoint saved to checkpoints\model_epoch_0006.pt
+2025-06-15 11:49:05,157 - Checkpoint saved to checkpoints\latest_model.pt
+n__ - INFO - Grad Norm: 1.0322e+00
+2025-06-15 11:48:10,185 - __main__ - INFO -   Train Loss: 0.3349
+2025-06-15 11:48:10,186 - __main__ - INFO -   Val Loss: 0.2979
+2025-06-15 11:48:11,764 - __main__ - INFO - Checkpoint saved to checkpoints\model_epoch_0005.pt
+2025-06-15 11:48:12,358 - __main__ - INFO - Checkpoint saved to checkpoints\latest_model.pt
+2025-06-15 11:48:30,476 - __main__ - INFO - Batch 1/1 - Loss: 0.315234 - LR: 9.99e-05
+2025-06-15 11:49:02,771 - __main__ - INFO - Epoch 6/50 - Train Loss: 0.315234 - Val Loss: 0.276738 - LR: 9.99e-05
+2025-06-15 11:49:02,772 - __main__ - INFO - Samples/sec: 0.07
+2025-06-15 11:49:02,772 - __main__ - INFO - Grad Norm: 1.9444e+00
+2025-06-15 11:49:02,772 - __main__ - INFO -   Train Loss: 0.3152
+2025-06-15 11:49:02,772 - __main__ - INFO -   Val Loss: 0.2767
+2025-06-15 11:49:04,104 - __main__ - INFO - Checkpoint saved to checkpoints\model_epoch_0006.pt
+2025-06-15 11:49:05,157 - __main__ - INFO - Checkpoint saved to checkpoints\latest_model.pt

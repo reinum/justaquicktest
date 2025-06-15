@@ -6,10 +6,7 @@ import torch.nn.functional as F
 from typing import Optional, Tuple, Dict, Any
 import math
 
-from .embeddings import (
-    PositionalEncoding, TimingEncoding, AccuracyConditioning,
-    BeatmapEncoder, CursorEncoder
-)
+from .embeddings import PositionalEncoding, TimingEncoding, AccuracyConditioning, BeatmapEncoder, CursorEncoder, SliderEncoder
 from .attention import (
     SelfAttention, CausalSelfAttention, CrossAttention,
     RelativePositionalAttention
@@ -93,12 +90,13 @@ class OsuTransformer(nn.Module):
         # Embedding layers
         self.cursor_encoding = CursorEncoder(config.d_model)
         self.beatmap_encoding = BeatmapEncoder(config.d_model, beatmap_feature_dim=8)
+        self.slider_encoding = SliderEncoder(config.d_model, slider_feature_dim=getattr(config, 'slider_feature_dim', 13))
         self.positional_encoding = PositionalEncoding(config.d_model, config.max_seq_length)
         self.timing_encoding = TimingEncoding(config.d_model)
         self.accuracy_conditioning = AccuracyConditioning(config.d_model)
         
         # Input projection
-        self.input_projection = nn.Linear(config.d_model * 2, config.d_model)  # Cursor + beatmap
+        self.input_projection = nn.Linear(config.d_model * 3, config.d_model)  # Cursor + beatmap + slider
         
         # Transformer layers
         self.layers = nn.ModuleList([
@@ -144,7 +142,7 @@ class OsuTransformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
-    def forward(self, cursor_data: torch.Tensor, beatmap_data: torch.Tensor,
+    def forward(self, cursor_data: torch.Tensor, beatmap_data: torch.Tensor, slider_data: torch.Tensor,
                 timing_data: torch.Tensor, key_data: torch.Tensor, accuracy_target: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
                 key_padding_mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
@@ -153,6 +151,7 @@ class OsuTransformer(nn.Module):
         Args:
             cursor_data: Cursor positions of shape (seq_len, batch_size, 2)
             beatmap_data: Beatmap features of shape (seq_len, batch_size, beatmap_features)
+            slider_data: Slider features of shape (seq_len, batch_size, slider_features)
             timing_data: Timing information of shape (seq_len, batch_size, 1)
             key_data: Key states of shape (seq_len, batch_size, 4)
             accuracy_target: Target accuracy of shape (batch_size, 1)
@@ -177,9 +176,11 @@ class OsuTransformer(nn.Module):
         cursor_data = cursor_data.transpose(0, 1)  # [batch_size, seq_len, 2] -> [seq_len, batch_size, 2]
         key_data = key_data.transpose(0, 1)  # [batch_size, seq_len, 4] -> [seq_len, batch_size, 4]
         beatmap_data = beatmap_data.transpose(0, 1)  # [batch_size, seq_len, 6] -> [seq_len, batch_size, 6]
+        slider_data = slider_data.transpose(0, 1)  # [batch_size, seq_len, 13] -> [seq_len, batch_size, 13]
         timing_data = timing_data.transpose(0, 1)  # [batch_size, seq_len, 1] -> [seq_len, batch_size, 1]
         print(f"DEBUG: cursor_data.shape after transpose: {cursor_data.shape}")
         print(f"DEBUG: beatmap_data.shape after transpose: {beatmap_data.shape}")
+        print(f"DEBUG: slider_data.shape after transpose: {slider_data.shape}")
         print(f"DEBUG: timing_data.shape after transpose: {timing_data.shape}")
         
         # Update seq_len and batch_size after transposition
@@ -191,6 +192,8 @@ class OsuTransformer(nn.Module):
         print(f"DEBUG: cursor_emb shape after encoding: {cursor_emb.shape}")
         beatmap_emb = self.beatmap_encoding(beatmap_data)  # (seq_len, batch_size, d_model)
         print(f"DEBUG: beatmap_emb shape after encoding: {beatmap_emb.shape}")
+        slider_emb = self.slider_encoding(slider_data)  # (seq_len, batch_size, d_model)
+        print(f"DEBUG: slider_emb shape after encoding: {slider_emb.shape}")
         timing_emb = self.timing_encoding(timing_data)  # (seq_len, batch_size, d_model)
         print(f"DEBUG: timing_emb shape after encoding: {timing_emb.shape}")
         
@@ -199,15 +202,19 @@ class OsuTransformer(nn.Module):
         print(f"DEBUG: cursor_emb shape after positional encoding: {cursor_emb.shape}")
         beatmap_emb = self.positional_encoding(beatmap_emb)
         print(f"DEBUG: beatmap_emb shape after positional encoding: {beatmap_emb.shape}")
+        slider_emb = self.positional_encoding(slider_emb)
+        print(f"DEBUG: slider_emb shape after positional encoding: {slider_emb.shape}")
         
         # Add timing information
         cursor_emb = cursor_emb + timing_emb
         print(f"DEBUG: cursor_emb shape after adding timing: {cursor_emb.shape}")
         beatmap_emb = beatmap_emb + timing_emb
         print(f"DEBUG: beatmap_emb shape after adding timing: {beatmap_emb.shape}")
+        slider_emb = slider_emb + timing_emb
+        print(f"DEBUG: slider_emb shape after adding timing: {slider_emb.shape}")
         
-        # Combine cursor and beatmap embeddings
-        combined_emb = torch.cat([cursor_emb, beatmap_emb], dim=-1)  # (seq_len, batch_size, 2*d_model)
+        # Combine cursor, beatmap, and slider embeddings
+        combined_emb = torch.cat([cursor_emb, beatmap_emb, slider_emb], dim=-1)  # (seq_len, batch_size, 3*d_model)
         print(f"DEBUG: combined_emb shape: {combined_emb.shape}")
         x = self.input_projection(combined_emb)  # (seq_len, batch_size, d_model)
         print(f"DEBUG: x after projection shape: {x.shape}")

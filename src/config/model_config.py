@@ -25,6 +25,7 @@ class ModelConfig:
     cursor_dim: int = 2  # x, y coordinates
     key_dim: int = 4     # K1, K2, M1, M2 key states
     beatmap_feature_dim: int = 8  # Hit object features (time, x, y, type, etc.)
+    slider_feature_dim: int = 13  # Slider-specific features (progress, velocity, etc.)
     accuracy_condition_dim: int = 4  # 300s, 100s, 50s, misses percentages
     
     # Positional Encoding

@@ -175,6 +175,10 @@ class OsuTrainer:
         epoch_losses = defaultdict(float)
         epoch_metrics = defaultdict(float)
         
+        # Track performance metrics
+        epoch_start_time = time.time()
+        total_samples = 0
+        
         # Update curriculum difficulty
         if self.current_epoch < len(self.difficulty_schedule):
             self.current_difficulty = self.difficulty_schedule[self.current_epoch]
@@ -185,6 +189,10 @@ class OsuTrainer:
             # Move batch to device
             batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
+            
+            # Count samples for performance tracking
+            batch_size = batch['cursor_data'].size(0)
+            total_samples += batch_size
             
             # Apply curriculum learning (filter by difficulty)
             if self.config.use_curriculum_learning:
@@ -198,7 +206,8 @@ class OsuTrainer:
                         beatmap_data=batch['beatmap_data'],
                         timing_data=batch['timing_data'],
                         key_data=batch['key_data'],
-                        accuracy_target=batch['accuracy_target']
+                        accuracy_target=batch['accuracy_target'],
+                        slider_data=batch.get('slider_data', None)
                     )
                     loss_dict = self.criterion(outputs, batch)
                     total_loss = loss_dict['total_loss']
@@ -208,7 +217,8 @@ class OsuTrainer:
                     beatmap_data=batch['beatmap_data'],
                     timing_data=batch['timing_data'],
                     key_data=batch['key_data'],
-                    accuracy_target=batch['accuracy_target']
+                    accuracy_target=batch['accuracy_target'],
+                    slider_data=batch.get('slider_data', None)
                 )
                 loss_dict = self.criterion(outputs, batch)
                 total_loss = loss_dict['total_loss']
@@ -219,21 +229,37 @@ class OsuTrainer:
             if self.use_amp:
                 self.scaler.scale(total_loss).backward()
                 
-                # Gradient clipping
+                # Calculate gradient norm before clipping
                 if self.config.gradient_clip_norm > 0:
                     self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
-                                                 self.config.gradient_clip_norm)
+                    self._gradient_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
+                                                 self.config.gradient_clip_norm).item()
+                else:
+                    # Calculate gradient norm without clipping
+                    total_norm = 0
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    self._gradient_norm = total_norm ** (1. / 2)
                 
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
                 total_loss.backward()
                 
-                # Gradient clipping
+                # Calculate gradient norm before clipping
                 if self.config.gradient_clip_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
-                                                 self.config.gradient_clip_norm)
+                    self._gradient_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
+                                                 self.config.gradient_clip_norm).item()
+                else:
+                    # Calculate gradient norm without clipping
+                    total_norm = 0
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    self._gradient_norm = total_norm ** (1. / 2)
                 
                 self.optimizer.step()
             
@@ -260,6 +286,10 @@ class OsuTrainer:
                 'diff': f"{self.current_difficulty:.2f}"
             })
             
+            # Log batch progress for dashboard (every 10 batches to avoid spam)
+            if batch_idx % 10 == 0:
+                self.logger.info(f"Batch {batch_idx + 1}/{len(self.train_loader)} - Loss: {total_loss.item():.6f} - LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            
             self.global_step += 1
             
             # Log to wandb
@@ -271,6 +301,10 @@ class OsuTrainer:
                     'train/epoch': self.current_epoch,
                     'train/step': self.global_step
                 })
+        
+        # Calculate performance metrics
+        epoch_time = time.time() - epoch_start_time
+        self._samples_per_second = total_samples / epoch_time if epoch_time > 0 else 0
         
         # Average losses and metrics
         num_batches = len(self.train_loader)
@@ -299,7 +333,8 @@ class OsuTrainer:
                             beatmap_data=batch['beatmap_data'],
                             timing_data=batch['timing_data'],
                             key_data=batch['key_data'],
-                            accuracy_target=batch['accuracy_target']
+                            accuracy_target=batch['accuracy_target'],
+                            slider_data=batch.get('slider_data', None)
                         )
                         loss_dict = self.criterion(outputs, batch)
                 else:
@@ -308,7 +343,8 @@ class OsuTrainer:
                         beatmap_data=batch['beatmap_data'],
                         timing_data=batch['timing_data'],
                         key_data=batch['key_data'],
-                        accuracy_target=batch['accuracy_target']
+                        accuracy_target=batch['accuracy_target'],
+                        slider_data=batch.get('slider_data', None)
                     )
                     loss_dict = self.criterion(outputs, batch)
                 
@@ -395,8 +431,29 @@ class OsuTrainer:
             # Validate
             val_results = self.validate()
             
-            # Log results
-            self.logger.info(f"Epoch {epoch + 1}/{self.config.max_epochs}:")
+            # Log results in dashboard-compatible format
+            self.logger.info(f"Epoch {epoch + 1}/{self.config.max_epochs} - Train Loss: {train_results['total_loss']:.6f} - Val Loss: {val_results['total_loss']:.6f} - LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+            
+            # Log additional metrics for dashboard
+            if 'accuracy' in train_results:
+                self.logger.info(f"Train Acc: {train_results['accuracy']:.4f}")
+            if 'accuracy' in val_results:
+                self.logger.info(f"Val Acc: {val_results['accuracy']:.4f}")
+            
+            # Log performance metrics
+            if hasattr(self, '_samples_per_second'):
+                self.logger.info(f"Samples/sec: {self._samples_per_second:.2f}")
+            
+            if hasattr(self, '_gradient_norm'):
+                self.logger.info(f"Grad Norm: {self._gradient_norm:.4e}")
+            
+            # Log model info (once per training)
+            if epoch == 0:
+                total_params = sum(p.numel() for p in self.model.parameters())
+                self.logger.info(f"Model Parameters: {total_params:,}")
+                self.logger.info(f"Dataset Size: {len(self.train_loader.dataset):,}")
+            
+            # Also log individual components for debugging
             self.logger.info(f"  Train Loss: {train_results['total_loss']:.4f}")
             self.logger.info(f"  Val Loss: {val_results['total_loss']:.4f}")
             

@@ -26,7 +26,8 @@ from src.config.model_config import ModelConfig, TrainingConfig, DataConfig, get
 from src.models.transformer import OsuTransformer
 from src.data.dataset import OsuReplayDataset
 from src.training.trainer import OsuTrainer
-from src.utils.logging_utils import setup_logging
+from src.training.loss import ReplayLoss
+from src.utils.logging_utils import setup_logging, get_logger
 
 
 def load_config(config_path: str) -> dict:
@@ -91,10 +92,10 @@ def check_dataset(data_config: DataConfig) -> bool:
         issues.append(f"Index CSV not found: {data_config.csv_path}")
     
     if issues:
-        print("\n❌ Dataset issues found:")
+        print("\nDataset issues found:")
         for issue in issues:
             print(f"  - {issue}")
-        print("\n💡 Make sure you have:")
+        print("\nMake sure you have:")
         print("  1. Beatmap files (.osu) in dataset/beatmaps/")
         print("  2. Replay files (.osr) in dataset/replays/")
         print("  3. Index CSV file at dataset/index.csv")
@@ -117,35 +118,50 @@ def main():
     
     args = parser.parse_args()
     
-    # Setup logging
+    # Setup logging with dashboard-compatible format
     log_level = logging.DEBUG if args.debug else logging.INFO
-    setup_logging(level=log_level)
-    logger = logging.getLogger(__name__)
+    log_filename = "training.log"
+    setup_logging(
+        level=log_level,
+        log_file=log_filename
+    )
     
-    print("🎮 osu! AI Replay Maker - Training")
+    # Get logger instance
+    logger = get_logger(__name__)
+    
+    # Create a file handler that overwrites the log file for dashboard
+    dashboard_handler = logging.FileHandler(log_filename, mode='w')
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    dashboard_handler.setFormatter(formatter)
+    logger.addHandler(dashboard_handler)
+    
+    print(f"Logging to: {log_filename}")
+    print(f"Dashboard available at: http://localhost:5000")
+    
+    print("osu! AI Replay Maker - Training")
     print("=" * 40)
     
     # Load configuration
-    print(f"📋 Loading config from: {args.config}")
+    print(f"Loading config from: {args.config}")
     config_dict = load_config(args.config)
     model_config, training_config, data_config = create_configs_from_yaml(config_dict)
     
     # Override dataset paths if custom dataset folder is specified
     if args.dataset != 'dataset':
-        print(f"📁 Using custom dataset folder: {args.dataset}")
+        print(f"Using custom dataset folder: {args.dataset}")
         data_config.data_path = args.dataset
         data_config.replay_dir = f"{args.dataset}/replays/npy"
         data_config.beatmap_dir = f"{args.dataset}/beatmaps"
         data_config.csv_path = f"{args.dataset}/index.csv"
     
     # Check dataset
-    print("🔍 Checking dataset...")
+    print("Checking dataset...")
     if not check_dataset(data_config):
         return 1
     
     # Get device
     device = get_device()
-    print(f"🖥️  Using device: {device}")
+    print(f"Using device: {device}")
     
     if device.type == 'cuda':
         print(f"   GPU: {torch.cuda.get_device_name()}")
@@ -153,7 +169,7 @@ def main():
     
     try:
         # Create model
-        print("🧠 Creating model...")
+        print("Creating model...")
         model = OsuTransformer(model_config)
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -161,7 +177,7 @@ def main():
         print(f"   Trainable parameters: {trainable_params:,}")
         
         # Create datasets
-        print("📊 Loading datasets...")
+        print("Loading datasets...")
         train_dataset = OsuReplayDataset(
             data_config=data_config,
             split='train'
@@ -197,7 +213,7 @@ def main():
         )
         
         # Create trainer
-        print("🏃 Initializing trainer...")
+        print("Initializing trainer...")
         trainer = OsuTrainer(
             model=model,
             train_loader=train_loader,
@@ -210,11 +226,11 @@ def main():
         
         # Resume from checkpoint if specified
         if args.resume:
-            print(f"🔄 Resuming from checkpoint: {args.resume}")
+            print(f"Resuming from checkpoint: {args.resume}")
             trainer.load_checkpoint(args.resume)
         
         # Start training
-        print("🚀 Starting training...")
+        print("Starting training...")
         print(f"   Epochs: {training_config.max_epochs}")
         print(f"   Batch size: {training_config.batch_size}")
         print(f"   Learning rate: {training_config.learning_rate}")
@@ -223,15 +239,16 @@ def main():
         
         trainer.train()
         
-        print("\n✅ Training completed successfully!")
-        print(f"📁 Checkpoints saved in: checkpoints/")
+        print("\nTraining completed successfully!")
+        print(f"Checkpoints saved in: checkpoints/")
         
     except KeyboardInterrupt:
-        print("\n⏹️  Training interrupted by user")
+        logger.info("Training interrupted by user")
+        print("\nTraining interrupted by user")
         return 1
     except Exception as e:
-        logger.error(f"Training failed: {e}", exc_info=True)
-        print(f"\n❌ Training failed: {e}")
+        logger.error(f"Training failed: {e}")
+        print(f"\nTraining failed: {e}")
         return 1
     
     return 0

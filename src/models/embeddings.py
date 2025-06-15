@@ -176,6 +176,71 @@ class BeatmapEncoder(nn.Module):
         return self.layer_norm(output)
 
 
+class SliderEncoder(nn.Module):
+    """Encoder for slider-specific features."""
+    
+    def __init__(self, d_model: int, slider_feature_dim: int = 13):
+        super().__init__()
+        self.d_model = d_model
+        
+        # Position features (position on slider path, distance to target)
+        self.position_projection = nn.Linear(2, d_model // 4)
+        
+        # Velocity features (velocity magnitude, direction alignment)
+        self.velocity_projection = nn.Linear(2, d_model // 4)
+        
+        # Temporal features (progress, time remaining)
+        self.temporal_projection = nn.Linear(2, d_model // 4)
+        
+        # Geometric features (curvature, path length, etc.)
+        self.geometric_projection = nn.Linear(4, d_model // 4)
+        
+        # Context features (slider type, repeat count, difficulty)
+        self.context_projection = nn.Linear(3, d_model // 4)
+        
+        # Final projection to combine all features
+        self.output_projection = nn.Linear(d_model + d_model // 4, d_model)
+        self.layer_norm = nn.LayerNorm(d_model)
+        
+    def forward(self, slider_features: torch.Tensor) -> torch.Tensor:
+        """Encode slider features.
+        
+        Args:
+            slider_features: Tensor of shape (seq_len, batch_size, 13)
+                           Features: [position_on_path, distance_to_target, 
+                                    velocity_magnitude, direction_alignment,
+                                    progress, time_remaining,
+                                    curvature, path_length, segment_count, direction_changes,
+                                    slider_type, repeat_count, difficulty_rating]
+            
+        Returns:
+            Encoded slider features of shape (seq_len, batch_size, d_model)
+        """
+        # Extract feature groups
+        position_features = slider_features[:, :, 0:2]  # position_on_path, distance_to_target
+        velocity_features = slider_features[:, :, 2:4]  # velocity_magnitude, direction_alignment
+        temporal_features = slider_features[:, :, 4:6]  # progress, time_remaining
+        geometric_features = slider_features[:, :, 6:10]  # curvature, path_length, segment_count, direction_changes
+        context_features = slider_features[:, :, 10:13]  # slider_type, repeat_count, difficulty_rating
+        
+        # Encode each feature group
+        position_encoding = self.position_projection(position_features)
+        velocity_encoding = self.velocity_projection(velocity_features)
+        temporal_encoding = self.temporal_projection(temporal_features)
+        geometric_encoding = self.geometric_projection(geometric_features)
+        context_encoding = self.context_projection(context_features)
+        
+        # Combine all encodings
+        combined = torch.cat([
+            position_encoding, velocity_encoding, temporal_encoding,
+            geometric_encoding, context_encoding
+        ], dim=-1)
+        
+        # Final projection and normalization
+        output = self.output_projection(combined)
+        return self.layer_norm(output)
+
+
 class CursorEncoder(nn.Module):
     """Encoder for cursor position and key state history."""
     

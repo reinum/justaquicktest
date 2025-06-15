@@ -7,9 +7,12 @@ from typing import List, Dict, Tuple, Optional, Union
 import random
 import math
 from pathlib import Path
+import logging
+from dataclasses import dataclass
 
-from .npy_loader import NumpyReplayLoader, NumpyReplay
+from .npy_loader import NumpyReplay, NumpyReplayLoader as ReplayLoader
 from ..config.model_config import DataConfig
+from .slider_features import SliderFeatureExtractor, create_slider_info_from_beatmap
 
 
 class OsuReplayDataset(Dataset):
@@ -29,8 +32,11 @@ class OsuReplayDataset(Dataset):
         self.stride = data_config.stride
         
         # Load data
-        self.loader = NumpyReplayLoader(data_config.replay_dir, data_config.csv_path)
+        self.loader = ReplayLoader(replay_dir=data_config.replay_dir, csv_path=data_config.csv_path)
         self.replays = self._load_replays()
+        
+        # Initialize slider feature extractor
+        self.slider_extractor = SliderFeatureExtractor()
         
         # Create sliding windows
         self.windows = self._create_windows()
@@ -111,6 +117,7 @@ class OsuReplayDataset(Dataset):
             Dictionary containing:
             - cursor_data: Cursor positions (seq_len, 2)
             - beatmap_data: Beatmap features (seq_len, beatmap_features)
+            - slider_data: Slider features (seq_len, slider_features)
             - timing_data: Timing information (seq_len, 1)
             - key_data: Key states (seq_len, 4)
             - accuracy_target: Target accuracy (1,)
@@ -125,6 +132,7 @@ class OsuReplayDataset(Dataset):
         # Extract features
         cursor_data = self._extract_cursor_data(window_data)
         beatmap_data = self._extract_beatmap_data(window_data)
+        slider_data = self._extract_slider_data(window_data, replay)
         timing_data = self._extract_timing_data(window_data)
         key_data = self._extract_key_data(window_data)
         accuracy_target = self._extract_accuracy_target(replay)
@@ -135,6 +143,7 @@ class OsuReplayDataset(Dataset):
         return {
             'cursor_data': cursor_data,
             'beatmap_data': beatmap_data,
+            'slider_data': slider_data,
             'timing_data': timing_data,
             'key_data': key_data,
             'accuracy_target': accuracy_target,
@@ -231,6 +240,95 @@ class OsuReplayDataset(Dataset):
         
         key_data = np.stack(keys, axis=-1)
         return torch.tensor(key_data, dtype=torch.float32)
+    
+    def _extract_slider_data(self, window_data, replay: NumpyReplay) -> torch.Tensor:
+        """Extract slider-specific features."""
+        seq_len = window_data.shape[0]
+        slider_features = []
+        
+        # Get beatmap metadata for slider calculations
+        beatmap_metadata = getattr(replay, 'beatmap_metadata', {})
+        bpm = beatmap_metadata.get('bpm', 120.0)
+        beat_length = 60000.0 / bpm  # ms per beat
+        slider_multiplier = beatmap_metadata.get('slider_multiplier', 1.4)
+        
+        for i in range(seq_len):
+            current_time = window_data[i, 0] if window_data.shape[1] > 0 else i * 16.67  # Assume 60 FPS
+            cursor_pos = (window_data[i, 1], window_data[i, 2]) if window_data.shape[1] > 2 else (0, 0)
+            
+            # Calculate cursor velocity (simple finite difference)
+            if i > 0 and window_data.shape[1] > 2:
+                dt = max(1.0, window_data[i, 0] - window_data[i-1, 0])  # Time difference
+                dx = window_data[i, 1] - window_data[i-1, 1]
+                dy = window_data[i, 2] - window_data[i-1, 2]
+                cursor_velocity = (dx / dt, dy / dt)
+            else:
+                cursor_velocity = (0.0, 0.0)
+            
+            # Check if there's an active slider at this time
+            # For now, create placeholder slider info - this would need actual beatmap data
+            slider_info = self._get_active_slider(current_time, beatmap_metadata)
+            
+            if slider_info:
+                # Extract slider features using the slider extractor
+                features = self.slider_extractor.extract_slider_features(
+                    slider_info, current_time, cursor_pos, cursor_velocity
+                )
+                
+                # Convert to list in consistent order
+                feature_values = [
+                    features.get('slider_progress', 0.0),
+                    features.get('target_slider_x', 0.0),
+                    features.get('target_slider_y', 0.0),
+                    features.get('slider_active', 0.0),
+                    features.get('target_velocity', 0.0),
+                    features.get('current_velocity', 0.0),
+                    features.get('velocity_error', 0.0),
+                    features.get('time_remaining', 0.0),
+                    features.get('time_elapsed', 0.0),
+                    features.get('urgency_factor', 0.0),
+                    features.get('curve_complexity', 0.0),
+                    features.get('direction_change', 0.0),
+                    features.get('current_bpm', bpm / 200.0)  # Normalized
+                ]
+            else:
+                # No active slider - all features are zero
+                feature_values = [0.0] * 13
+            
+            slider_features.append(feature_values)
+        
+        slider_data = np.array(slider_features, dtype=np.float32)
+        return torch.tensor(slider_data, dtype=torch.float32)
+    
+    def _get_active_slider(self, current_time: float, beatmap_metadata: dict):
+        """Get active slider at current time."""
+        # Check if we have hit objects in the beatmap metadata
+        hit_objects = beatmap_metadata.get('hit_objects', [])
+        
+        for hit_object in hit_objects:
+            # Check if this is a slider (type 2 in osu! format)
+            if hit_object.get('type', 0) & 2:  # Slider flag
+                start_time = hit_object.get('time', 0)
+                duration = hit_object.get('duration', 0)
+                end_time = start_time + duration
+                
+                # Check if current time is within slider duration
+                if start_time <= current_time <= end_time:
+                    # Create a basic slider info object
+                    slider_info = {
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'duration': duration,
+                        'start_x': hit_object.get('x', 256),
+                        'start_y': hit_object.get('y', 192),
+                        'curve_type': hit_object.get('curve_type', 'L'),  # Linear by default
+                        'curve_points': hit_object.get('curve_points', []),
+                        'slides': hit_object.get('slides', 1),
+                        'length': hit_object.get('length', 100.0)
+                    }
+                    return slider_info
+        
+        return None
     
     def _extract_accuracy_target(self, replay: NumpyReplay) -> torch.Tensor:
         """Extract target accuracy for conditioning."""

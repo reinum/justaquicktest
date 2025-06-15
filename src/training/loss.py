@@ -132,21 +132,154 @@ class KeyLoss(nn.Module):
         return focal_loss
 
 
+class SliderLoss(nn.Module):
+    """Loss function for slider-specific predictions."""
+    
+    def __init__(self, path_weight: float = 1.0, timing_weight: float = 0.5, 
+                 smoothness_weight: float = 0.3):
+        super().__init__()
+        self.path_weight = path_weight
+        self.timing_weight = timing_weight
+        self.smoothness_weight = smoothness_weight
+        
+    def forward(self, pred_cursor: torch.Tensor, target_cursor: torch.Tensor,
+                slider_features: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Compute slider-specific loss.
+        
+        Args:
+            pred_cursor: Predicted cursor positions (seq_len, batch_size, 2)
+            target_cursor: Target cursor positions (seq_len, batch_size, 2)
+            slider_features: Slider feature data (seq_len, batch_size, 13)
+            mask: Optional mask for valid positions
+            
+        Returns:
+            Scalar slider loss value
+        """
+        # Extract slider activity (assuming it's encoded in the features)
+        slider_active = slider_features[:, :, 0] > 0  # position_on_path > 0 indicates active slider
+        
+        if not slider_active.any():
+            return torch.tensor(0.0, device=pred_cursor.device)
+        
+        # Path adherence loss - cursor should follow the slider path
+        path_loss = self._compute_path_adherence_loss(
+            pred_cursor, target_cursor, slider_features, slider_active, mask
+        )
+        
+        # Timing consistency loss - cursor should move at appropriate speed
+        timing_loss = self._compute_timing_consistency_loss(
+            pred_cursor, slider_features, slider_active, mask
+        )
+        
+        # Smoothness loss - cursor movement should be smooth during sliders
+        smoothness_loss = self._compute_slider_smoothness_loss(
+            pred_cursor, slider_active, mask
+        )
+        
+        total_loss = (
+            self.path_weight * path_loss +
+            self.timing_weight * timing_loss +
+            self.smoothness_weight * smoothness_loss
+        )
+        
+        return total_loss
+    
+    def _compute_path_adherence_loss(self, pred_cursor: torch.Tensor, 
+                                   target_cursor: torch.Tensor,
+                                   slider_features: torch.Tensor,
+                                   slider_active: torch.Tensor,
+                                   mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Compute loss for how well cursor follows slider path."""
+        # Distance to target position (feature index 1)
+        distance_to_target = slider_features[:, :, 1]  # (seq_len, batch_size)
+        
+        # Weight the position loss by slider activity
+        position_diff = torch.norm(pred_cursor - target_cursor, dim=-1)  # (seq_len, batch_size)
+        
+        # Apply slider activity mask
+        slider_mask = slider_active.float()
+        if mask is not None:
+            slider_mask = slider_mask * mask
+        
+        # Weighted position loss
+        weighted_loss = position_diff * slider_mask
+        
+        # Additional penalty for deviating from slider path
+        path_penalty = distance_to_target * slider_mask
+        
+        total_path_loss = weighted_loss + 0.5 * path_penalty
+        
+        return total_path_loss.sum() / (slider_mask.sum() + 1e-8)
+    
+    def _compute_timing_consistency_loss(self, pred_cursor: torch.Tensor,
+                                       slider_features: torch.Tensor,
+                                       slider_active: torch.Tensor,
+                                       mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Compute loss for timing consistency during sliders."""
+        if pred_cursor.shape[0] < 2:
+            return torch.tensor(0.0, device=pred_cursor.device)
+        
+        # Expected velocity based on slider progress (feature index 4)
+        slider_progress = slider_features[:, :, 4]  # (seq_len, batch_size)
+        progress_velocity = torch.diff(slider_progress, dim=0)  # (seq_len-1, batch_size)
+        
+        # Actual cursor velocity
+        cursor_velocity = torch.norm(
+            torch.diff(pred_cursor, dim=0), dim=-1
+        )  # (seq_len-1, batch_size)
+        
+        # Slider activity for velocity frames
+        velocity_slider_active = slider_active[1:].float()
+        if mask is not None:
+            velocity_slider_active = velocity_slider_active * mask[1:]
+        
+        # Timing consistency loss
+        timing_diff = torch.abs(cursor_velocity - torch.abs(progress_velocity) * 100)  # Scale factor
+        timing_loss = timing_diff * velocity_slider_active
+        
+        return timing_loss.sum() / (velocity_slider_active.sum() + 1e-8)
+    
+    def _compute_slider_smoothness_loss(self, pred_cursor: torch.Tensor,
+                                      slider_active: torch.Tensor,
+                                      mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Compute smoothness loss specifically for slider segments."""
+        if pred_cursor.shape[0] < 3:
+            return torch.tensor(0.0, device=pred_cursor.device)
+        
+        # Compute acceleration during slider segments
+        velocity = torch.diff(pred_cursor, dim=0)  # (seq_len-1, batch_size, 2)
+        acceleration = torch.diff(velocity, dim=0)  # (seq_len-2, batch_size, 2)
+        acceleration_magnitude = torch.norm(acceleration, dim=-1)  # (seq_len-2, batch_size)
+        
+        # Slider activity for acceleration frames
+        accel_slider_active = slider_active[2:].float()
+        if mask is not None:
+            accel_slider_active = accel_slider_active * mask[2:]
+        
+        # Smoothness loss - penalize high acceleration during sliders
+        smoothness_loss = acceleration_magnitude * accel_slider_active
+        
+        return smoothness_loss.sum() / (accel_slider_active.sum() + 1e-8)
+
+
 class ReplayLoss(nn.Module):
     """Combined loss function for replay generation."""
     
     def __init__(self, cursor_weight: float = 1.0, key_weight: float = 1.0,
-                 cursor_loss_type: str = 'mse', key_loss_type: str = 'bce',
-                 smoothness_weight: float = 0.1, temporal_weight: float = 0.1):
+                 slider_weight: float = 0.5, cursor_loss_type: str = 'mse', 
+                 key_loss_type: str = 'bce', smoothness_weight: float = 0.1, 
+                 temporal_weight: float = 0.1):
         super().__init__()
         
         self.cursor_weight = cursor_weight
         self.key_weight = key_weight
+        self.slider_weight = slider_weight
         self.temporal_weight = temporal_weight
         
         # Individual loss components
         self.cursor_loss = CursorLoss(cursor_loss_type, smoothness_weight)
         self.key_loss = KeyLoss(key_loss_type)
+        self.slider_loss = SliderLoss()
         
     def forward(self, predictions: Dict[str, torch.Tensor], 
                 targets: Dict[str, torch.Tensor],
@@ -197,11 +330,24 @@ class ReplayLoss(nn.Module):
         )
         losses['temporal_loss'] = temporal_loss
         
+        # Slider-specific loss (if slider data is available)
+        slider_loss = torch.tensor(0.0, device=cursor_loss.device)
+        if 'slider_data' in targets:
+            slider_target = targets['slider_data'].transpose(0, 1)  # (seq_len, batch_size, 13)
+            slider_loss = self.slider_loss(
+                predictions['cursor_pred'],
+                cursor_target,
+                slider_target,
+                transposed_mask
+            )
+        losses['slider_loss'] = slider_loss
+        
         # Combined loss
         total_loss = (
             self.cursor_weight * cursor_loss +
             self.key_weight * key_loss +
-            self.temporal_weight * temporal_loss
+            self.temporal_weight * temporal_loss +
+            self.slider_weight * slider_loss
         )
         losses['total_loss'] = total_loss
         
