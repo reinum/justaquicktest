@@ -116,7 +116,8 @@ class OsuTransformer(nn.Module):
             nn.Linear(config.d_model, config.d_model // 2),
             nn.GELU(),
             nn.Dropout(config.dropout),
-            nn.Linear(config.d_model // 2, 2)  # x, y coordinates
+            nn.Linear(config.d_model // 2, 2),  # x, y coordinates
+            nn.Sigmoid()  # Output [0,1] to match training data normalization
         )
         
         self.key_head = nn.Sequential(

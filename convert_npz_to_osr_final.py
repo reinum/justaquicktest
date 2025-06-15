@@ -4,6 +4,8 @@ import numpy as np
 import osrparse
 from pathlib import Path
 import sys
+import random
+import string
 
 def load_npz_replay(npz_path):
     """Load replay data from NPZ file."""
@@ -99,7 +101,7 @@ def convert_npz_to_osr(npz_path, original_osr_path, output_path):
         game_version=original.game_version,
         beatmap_hash=original.beatmap_hash,  # Use original beatmap hash
         username="AI Player",
-        replay_hash="",  # Will be calculated automatically
+        replay_hash="".join(random.choices(string.ascii_lowercase, k=8)),  # Will be calculated automatically
         count_300=count_300,
         count_100=count_100,
         count_50=count_50,
@@ -109,12 +111,12 @@ def convert_npz_to_osr(npz_path, original_osr_path, output_path):
         score=score,
         max_combo=max_combo,
         perfect=1 if count_miss == 0 else 0,
-        mods=original.mods,  # Use original mods
+        mods=osrparse.Mod(1),  # Use original mods
         life_bar_graph=[],  # Empty life bar for now
         timestamp=original.timestamp,  # Use original timestamp
         replay_data=events,
         replay_id=0,
-        rng_seed=12345
+        rng_seed=random.randint(10000, 99999)
     )
     
     # Write the new replay

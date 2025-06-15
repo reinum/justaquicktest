@@ -304,12 +304,13 @@ class CursorSampling:
         Returns:
             Sampled cursor position [batch_size, 2]
         """
-        # Convert logits to coordinates
-        cursor_pos = torch.tanh(cursor_logits)  # [-1, 1]
+        # Convert logits to normalized coordinates [0, 1]
+        # Use sigmoid instead of tanh to match training data normalization
+        cursor_pos = torch.sigmoid(cursor_logits)  # [0, 1]
         
         # Scale to screen coordinates
-        cursor_pos[:, 0] = (cursor_pos[:, 0] + 1) * screen_bounds[0] / 2
-        cursor_pos[:, 1] = (cursor_pos[:, 1] + 1) * screen_bounds[1] / 2
+        cursor_pos[:, 0] = cursor_pos[:, 0] * screen_bounds[0]
+        cursor_pos[:, 1] = cursor_pos[:, 1] * screen_bounds[1]
         
         # Apply smoothness constraint
         if previous_pos is not None and self.smoothness_weight > 0:

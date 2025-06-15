@@ -10,10 +10,13 @@ import math
 class CursorLoss(nn.Module):
     """Loss function for cursor position prediction."""
     
-    def __init__(self, loss_type: str = 'mse', smoothness_weight: float = 0.1):
+    def __init__(self, loss_type: str = 'mse', smoothness_weight: float = 0.1, 
+                 diversity_weight: float = 0.05, boundary_weight: float = 0.02):
         super().__init__()
         self.loss_type = loss_type
         self.smoothness_weight = smoothness_weight
+        self.diversity_weight = diversity_weight
+        self.boundary_weight = boundary_weight
         
         if loss_type == 'mse':
             self.base_loss = nn.MSELoss(reduction='none')
@@ -50,7 +53,16 @@ class CursorLoss(nn.Module):
         # Smoothness regularization
         smoothness_loss = self._compute_smoothness_loss(pred, mask)
         
-        total_loss = position_loss + self.smoothness_weight * smoothness_loss
+        # Spatial diversity loss to prevent mode collapse
+        diversity_loss = self._compute_diversity_loss(pred, mask)
+        
+        # Boundary exploration bonus
+        boundary_loss = self._compute_boundary_loss(pred, mask)
+        
+        total_loss = (position_loss + 
+                     self.smoothness_weight * smoothness_loss +
+                     self.diversity_weight * diversity_loss +
+                     self.boundary_weight * boundary_loss)
         
         return total_loss
     
@@ -71,6 +83,67 @@ class CursorLoss(nn.Module):
             smoothness = torch.mean(velocity ** 2)
         
         return smoothness
+    
+    def _compute_diversity_loss(self, pred: torch.Tensor, 
+                               mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Compute spatial diversity loss to prevent mode collapse.
+        
+        Penalizes low variance in cursor positions to encourage exploration
+        of the full playfield space.
+        """
+        if pred.shape[0] < 2 or pred.shape[1] < 2:
+            return torch.tensor(0.0, device=pred.device)
+        
+        # Compute variance across sequence and batch dimensions
+        # pred shape: (seq_len, batch_size, 2)
+        
+        # Flatten spatial dimensions for variance calculation
+        pred_flat = pred.view(-1, 2)  # (seq_len * batch_size, 2)
+        
+        # Compute variance for x and y coordinates separately
+        x_var = torch.var(pred_flat[:, 0])
+        y_var = torch.var(pred_flat[:, 1])
+        
+        # Target variance (normalized coordinates should have reasonable spread)
+        # For [0,1] normalized coordinates, good variance might be around 0.05-0.1
+        target_variance = 0.08
+        
+        # Penalize low variance (mode collapse)
+        diversity_loss = torch.max(torch.tensor(0.0, device=pred.device), 
+                                  target_variance - (x_var + y_var) / 2)
+        
+        return diversity_loss
+    
+    def _compute_boundary_loss(self, pred: torch.Tensor, 
+                              mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Compute boundary exploration loss.
+        
+        Encourages the model to use positions near playfield boundaries
+        rather than staying in the center.
+        """
+        if pred.shape[0] < 1:
+            return torch.tensor(0.0, device=pred.device)
+        
+        # pred contains normalized coordinates [0, 1]
+        # Compute distance from boundaries
+        
+        # Distance from edges (0 and 1)
+        dist_from_left = pred[:, :, 0]  # Distance from x=0
+        dist_from_right = 1.0 - pred[:, :, 0]  # Distance from x=1
+        dist_from_top = pred[:, :, 1]  # Distance from y=0
+        dist_from_bottom = 1.0 - pred[:, :, 1]  # Distance from y=1
+        
+        # Minimum distance to any boundary
+        min_dist_x = torch.min(dist_from_left, dist_from_right)
+        min_dist_y = torch.min(dist_from_top, dist_from_bottom)
+        min_boundary_dist = torch.min(min_dist_x, min_dist_y)
+        
+        # Penalize positions too far from boundaries (encourage edge exploration)
+        # But don't penalize too much to avoid forcing unrealistic movement
+        boundary_penalty_threshold = 0.3  # Allow center positions but encourage edges
+        boundary_loss = torch.mean(torch.clamp(min_boundary_dist - boundary_penalty_threshold, min=0.0))
+        
+        return boundary_loss
 
 
 class KeyLoss(nn.Module):

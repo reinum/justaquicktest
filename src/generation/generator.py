@@ -298,12 +298,8 @@ class ReplayGenerator:
                 logit_magnitude = torch.abs(cursor_logits).max().item()
                 print(f"DEBUG: cursor_logits max magnitude: {logit_magnitude:.4f}")
                 
-                if not self.model_trained or logit_magnitude < 0.1:
-                    original_logits = cursor_logits.clone()
-                    cursor_logits = cursor_logits * 150.0  # Scale up small untrained model outputs
-                    print(f"DEBUG: SCALING APPLIED - Reason: model_trained={self.model_trained}, magnitude={logit_magnitude:.4f}")
-                    print(f"DEBUG: SCALING APPLIED - Original logits: [{original_logits[0, 0].item():.4f}, {original_logits[0, 1].item():.4f}]")
-                    print(f"DEBUG: SCALING APPLIED - Scaled logits: [{cursor_logits[0, 0].item():.4f}, {cursor_logits[0, 1].item():.4f}]")
+                # Removed temporary 150x scaling - model now outputs proper [0,1] coordinates
+                # with sigmoid activation matching training data normalization
                 
                 print(f"DEBUG: cursor_logits.shape: {cursor_logits.shape}")
                 print(f"DEBUG: key_logits.shape: {key_logits.shape}")
