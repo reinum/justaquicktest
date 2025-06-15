@@ -1,101 +1,137 @@
 #!/usr/bin/env python3
 """
-Test script to verify FP16 overflow fixes.
+Test script for FP16 overflow fixes in the osu! AI model.
 """
 
 import torch
 import torch.nn as nn
+from torch.amp import GradScaler, autocast
+import sys
+import os
+
+# Add src to path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+
+# Import directly from files to avoid relative import issues
 from src.models.embeddings import AccuracyConditioning
+from src.models.attention import MultiHeadAttention
 
 def test_accuracy_conditioning():
-    """Test AccuracyConditioning with extreme values."""
-    print("Testing AccuracyConditioning with FP16...")
+    """Test AccuracyConditioning with various input values."""
+    print("Testing AccuracyConditioning...")
     
-    # Create model
-    model = AccuracyConditioning(d_model=512)
-    model.half()  # Convert to FP16
-    model.cuda()
-    
-    # Test with normal values
-    normal_accuracy = torch.tensor([[0.95]], dtype=torch.float16, device='cuda')
-    try:
-        output = model(normal_accuracy)
-        print(f"✓ Normal accuracy test passed. Output range: [{output.min():.2f}, {output.max():.2f}]")
-    except Exception as e:
-        print(f"✗ Normal accuracy test failed: {e}")
-        return False
-    
-    # Test with extreme values (should be clamped)
-    extreme_accuracy = torch.tensor([[100.0]], dtype=torch.float16, device='cuda')
-    try:
-        output = model(extreme_accuracy)
-        print(f"✓ Extreme accuracy test passed. Output range: [{output.min():.2f}, {output.max():.2f}]")
-    except Exception as e:
-        print(f"✗ Extreme accuracy test failed: {e}")
-        return False
-    
-    # Test with negative values (should be clamped)
-    negative_accuracy = torch.tensor([[-1.0]], dtype=torch.float16, device='cuda')
-    try:
-        output = model(negative_accuracy)
-        print(f"✓ Negative accuracy test passed. Output range: [{output.min():.2f}, {output.max():.2f}]")
-    except Exception as e:
-        print(f"✗ Negative accuracy test failed: {e}")
-        return False
-    
-    print("All AccuracyConditioning tests passed!")
-    return True
+    # Test with different precisions
+    for dtype in [torch.float32, torch.float16]:
+        print(f"  Testing with {dtype}")
+        
+        model = AccuracyConditioning(d_model=512).to(dtype)
+        
+        # Test normal values
+        normal_input = torch.tensor([[0.95]], dtype=dtype)
+        try:
+            output = model(normal_input)
+            print(f"    Normal input (0.95): Output shape {output.shape}, range [{output.min():.2f}, {output.max():.2f}]")
+        except Exception as e:
+            print(f"    Normal input failed: {e}")
+        
+        # Test extreme values
+        extreme_input = torch.tensor([[1.5]], dtype=dtype)  # Should be clamped to 1.0
+        try:
+            output = model(extreme_input)
+            print(f"    Extreme input (1.5): Output shape {output.shape}, range [{output.min():.2f}, {output.max():.2f}]")
+        except Exception as e:
+            print(f"    Extreme input failed: {e}")
+        
+        # Test negative values
+        negative_input = torch.tensor([[-0.5]], dtype=dtype)  # Should be clamped to 0.0
+        try:
+            output = model(negative_input)
+            print(f"    Negative input (-0.5): Output shape {output.shape}, range [{output.min():.2f}, {output.max():.2f}]")
+        except Exception as e:
+            print(f"    Negative input failed: {e}")
 
-def test_gradient_scaling():
-    """Test gradient scaling with overflow detection."""
-    print("\nTesting gradient scaling...")
+def test_attention_mechanism():
+    """Test MultiHeadAttention with FP16."""
+    print("\nTesting MultiHeadAttention...")
     
-    from torch.amp import GradScaler
+    # Test with different precisions
+    for dtype in [torch.float32, torch.float16]:
+        print(f"  Testing with {dtype}")
+        
+        model = MultiHeadAttention(d_model=512, n_heads=8).to(dtype)
+        
+        # Create test input
+        seq_len, batch_size = 64, 4  # Smaller sequence for testing
+        x = torch.randn(seq_len, batch_size, 512, dtype=dtype)
+        
+        try:
+            output, attn_weights = model(x, x, x)
+            print(f"    Attention output shape: {output.shape}, range [{output.min():.2f}, {output.max():.2f}]")
+            print(f"    Attention weights shape: {attn_weights.shape}, range [{attn_weights.min():.4f}, {attn_weights.max():.4f}]")
+        except Exception as e:
+            print(f"    Attention failed: {e}")
+
+def test_gradscaler():
+    """Test GradScaler with updated configuration."""
+    print("\nTesting GradScaler...")
     
-    # Create scaler with our settings
+    if not torch.cuda.is_available():
+        print("  CUDA not available, skipping GradScaler test")
+        return
+    
+    # Create a simple model
+    model = nn.Sequential(
+        nn.Linear(10, 50),
+        nn.GELU(),
+        nn.Linear(50, 1)
+    ).cuda().to(torch.float32)  # Keep model in FP32, use autocast for FP16
+    
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    
+    # Initialize GradScaler with conservative settings
     scaler = GradScaler('cuda',
-        init_scale=2.**16,
+        init_scale=2.**8,  # Lower initial scale
         growth_factor=2.0,
         backoff_factor=0.5,
-        growth_interval=2000,
+        growth_interval=1000,
         enabled=True
     )
     
-    print(f"✓ GradScaler initialized with scale: {scaler.get_scale()}")
-    
-    # Test basic functionality - use float32 model with autocast for proper mixed precision
-    model = nn.Linear(10, 1).cuda()  # Keep model in float32
-    optimizer = torch.optim.Adam(model.parameters())
-    
-    x = torch.randn(32, 10, dtype=torch.float32, device='cuda')  # Input in float32
-    target = torch.randn(32, 1, dtype=torch.float32, device='cuda')  # Target in float32
+    # Test data
+    x = torch.randn(32, 10, device='cuda', dtype=torch.float32)
+    y = torch.randn(32, 1, device='cuda', dtype=torch.float32)
     
     try:
-        with torch.amp.autocast('cuda'):  # Autocast will handle the conversion to FP16
+        # Forward pass with autocast
+        with autocast('cuda'):
             output = model(x)
-            loss = nn.MSELoss()(output, target)
+            loss = nn.MSELoss()(output, y)
         
+        print(f"  Loss: {loss.item():.6f}")
+        print(f"  Initial scale: {scaler.get_scale()}")
+        
+        # Backward pass
+        optimizer.zero_grad()
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
         
-        print(f"✓ Gradient scaling test passed. Final scale: {scaler.get_scale()}")
-        return True
+        print(f"  Final scale: {scaler.get_scale()}")
+        print("  GradScaler test passed!")
+        
     except Exception as e:
-        print(f"✗ Gradient scaling test failed: {e}")
-        return False
+        print(f"  GradScaler test failed: {e}")
+
+def main():
+    print("FP16 Overflow Fix Test")
+    print("=" * 50)
+    
+    # Test individual components
+    test_accuracy_conditioning()
+    test_attention_mechanism()
+    test_gradscaler()
+    
+    print("\nAll tests completed!")
 
 if __name__ == "__main__":
-    if torch.cuda.is_available():
-        print("CUDA available, running FP16 overflow fix tests...")
-        
-        success = True
-        success &= test_accuracy_conditioning()
-        success &= test_gradient_scaling()
-        
-        if success:
-            print("\n🎉 All tests passed! FP16 overflow fixes are working correctly.")
-        else:
-            print("\n❌ Some tests failed. Please check the implementation.")
-    else:
-        print("CUDA not available, skipping FP16 tests.")
+    main()

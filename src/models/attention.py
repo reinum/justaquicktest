@@ -91,16 +91,19 @@ class MultiHeadAttention(nn.Module):
         # Compute attention scores
         scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # [batch_size, n_heads, seq_len, seq_len]
         
-        # Apply masks
+        # Clamp scores to prevent FP16 overflow
+        scores = torch.clamp(scores, -65000.0, 65000.0)
+        
+        # Apply masks with FP16-safe values
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1e9)
+            scores = scores.masked_fill(mask == 0, -65000.0)  # FP16-safe mask value
         
         if key_padding_mask is not None:
             # key_padding_mask has shape [batch_size, seq_len]
             # scores has shape [batch_size, n_heads, seq_len, seq_len]
             # Expand key_padding_mask to [batch_size, 1, 1, seq_len] for broadcasting
             key_padding_mask = key_padding_mask.unsqueeze(1).unsqueeze(2)  # (batch_size, 1, 1, seq_len)
-            scores = scores.masked_fill(key_padding_mask == 0, -1e9)
+            scores = scores.masked_fill(key_padding_mask == 0, -65000.0)  # FP16-safe mask value
         
         # Apply softmax
         attention_weights = F.softmax(scores, dim=-1)

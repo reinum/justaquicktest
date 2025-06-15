@@ -143,10 +143,10 @@ class OsuTrainer:
         if self.config.use_mixed_precision:
             # Use automatic loss scaling with overflow detection
             self.scaler = GradScaler('cuda',
-                init_scale=2.**16,  # Start with higher scale
+                init_scale=2.**8,  # Start with much lower scale for stability
                 growth_factor=2.0,
                 backoff_factor=0.5,
-                growth_interval=2000,
+                growth_interval=1000,  # More frequent adjustments
                 enabled=True
             )
             self.use_amp = True
@@ -261,8 +261,10 @@ class OsuTrainer:
                         self.scaler.update()
                         continue
                     
+                    # Use more aggressive gradient clipping for FP16 stability
+                    clip_value = min(self.config.gradient_clip_norm, 0.5)  # Cap at 0.5 for FP16
                     self._gradient_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
-                                                 self.config.gradient_clip_norm).item()
+                                                 clip_value).item()
                 else:
                     # Calculate gradient norm without clipping
                     total_norm = 0
