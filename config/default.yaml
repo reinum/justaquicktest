@@ -2,31 +2,31 @@
 
 # Model Architecture
 model:
-  d_model: 384  # Reduced for 4GB VRAM
-  n_heads: 6  # Reduced to be compatible with d_model=384
-  n_layers: 4  # Reduced for 4GB VRAM
-  d_ff: 1536  # Reduced for 4GB VRAM
+  d_model: 512  # Increased to better utilize 4GB VRAM
+  n_heads: 8  # Increased to be compatible with d_model=512
+  n_layers: 6  # Increased for better capacity
+  d_ff: 2048  # Increased for better capacity
   dropout: 0.1
-  max_seq_length: 512  # Reduced to match sequence_length
-  cursor_history_length: 32  # Reduced for 4GB VRAM
-  beatmap_context_length: 64  # Reduced for 4GB VRAM
+  max_seq_length: 1024  # Increased sequence length
+  cursor_history_length: 64  # Increased for better context
+  beatmap_context_length: 128  # Increased for better context
   use_positional_encoding: true
   use_gradient_checkpointing: true
   use_flash_attention: true
 
 # Training Configuration
 training:
-  batch_size: 4  # Further reduced for 4GB VRAM
+  batch_size: 8  # Increased to better utilize VRAM
   learning_rate: 1e-4
   weight_decay: 0.01
   warmup_steps: 1000
   max_epochs: 50  # Reduced for initial training
   gradient_clip_norm: 1.0
-  use_mixed_precision: false
-  fp16: false
+  use_mixed_precision: false  # Keeping disabled as requested
+  fp16: false  # Keeping disabled as requested
   optimizer: "adamw"
   scheduler: "cosine_with_warmup"
-  gradient_accumulation_steps: 8  # Increased to maintain effective batch size
+  gradient_accumulation_steps: 4  # Reduced since batch_size increased
   
   # Curriculum Learning
   use_curriculum_learning: true
@@ -66,9 +66,9 @@ data:
   test_split: 0.1
   
   # Sequence Processing
-  sequence_length: 512  # Reduced for 4GB VRAM
+  sequence_length: 1024  # Increased to match model max_seq_length
   overlap_ratio: 0.5
-  min_sequence_length: 256
+  min_sequence_length: 512  # Increased proportionally
   
   # Data Filtering
   min_accuracy: 0.8
@@ -88,10 +88,10 @@ data:
   timing_jitter: 0.01
   
   # Loading
-  num_workers: 2  # Reduced for stability
+  num_workers: 4  # Increased for better data loading
   pin_memory: true
   prefetch_factor: 2
-  max_replays_in_memory: 500
+  max_replays_in_memory: 1000  # Increased since we have more VRAM available
   cache_preprocessed: true
 
 # Generation Configuration
