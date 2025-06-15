@@ -50,10 +50,10 @@ def test_gradient_scaling():
     """Test gradient scaling with overflow detection."""
     print("\nTesting gradient scaling...")
     
-    from torch.cuda.amp import GradScaler
+    from torch.amp import GradScaler
     
     # Create scaler with our settings
-    scaler = GradScaler(
+    scaler = GradScaler('cuda',
         init_scale=2.**16,
         growth_factor=2.0,
         backoff_factor=0.5,
@@ -63,15 +63,15 @@ def test_gradient_scaling():
     
     print(f"✓ GradScaler initialized with scale: {scaler.get_scale()}")
     
-    # Test basic functionality
-    model = nn.Linear(10, 1).cuda().half()
+    # Test basic functionality - use float32 model with autocast for proper mixed precision
+    model = nn.Linear(10, 1).cuda()  # Keep model in float32
     optimizer = torch.optim.Adam(model.parameters())
     
-    x = torch.randn(32, 10, dtype=torch.float16, device='cuda')
-    target = torch.randn(32, 1, dtype=torch.float16, device='cuda')
+    x = torch.randn(32, 10, dtype=torch.float32, device='cuda')  # Input in float32
+    target = torch.randn(32, 1, dtype=torch.float32, device='cuda')  # Target in float32
     
     try:
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda'):  # Autocast will handle the conversion to FP16
             output = model(x)
             loss = nn.MSELoss()(output, target)
         

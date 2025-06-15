@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 import numpy as np
 import time
@@ -142,7 +142,7 @@ class OsuTrainer:
         """Setup mixed precision training."""
         if self.config.use_mixed_precision:
             # Use automatic loss scaling with overflow detection
-            self.scaler = GradScaler(
+            self.scaler = GradScaler('cuda',
                 init_scale=2.**16,  # Start with higher scale
                 growth_factor=2.0,
                 backoff_factor=0.5,
@@ -209,7 +209,7 @@ class OsuTrainer:
             
             # Forward pass
             if self.use_amp:
-                with autocast():
+                with autocast('cuda'):
                     outputs = self.model(
                         cursor_data=batch['cursor_data'],
                         beatmap_data=batch['beatmap_data'],
@@ -392,7 +392,7 @@ class OsuTrainer:
                 
                 # Forward pass
                 if self.use_amp:
-                    with autocast():
+                    with autocast('cuda'):
                         outputs = self.model(
                             cursor_data=batch['cursor_data'],
                             beatmap_data=batch['beatmap_data'],
