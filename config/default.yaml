@@ -1,0 +1,117 @@
+# Default configuration for osu! AI Replay Maker
+
+# Model Architecture
+model:
+  d_model: 512
+  n_heads: 8
+  n_layers: 6
+  d_ff: 2048
+  dropout: 0.1
+  max_seq_length: 2048
+  cursor_history_length: 64
+  beatmap_context_length: 128
+  use_positional_encoding: true
+  use_gradient_checkpointing: true
+  use_flash_attention: true
+
+# Training Configuration
+training:
+  batch_size: 8  # Reduced for 4GB VRAM
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  max_epochs: 50  # Reduced for initial training
+  gradient_clip_norm: 1.0
+  use_mixed_precision: true
+  fp16: true
+  optimizer: "adamw"
+  scheduler: "cosine_with_warmup"
+  gradient_accumulation_steps: 4
+  
+  # Curriculum Learning
+  use_curriculum_learning: true
+  curriculum_start_difficulty: 1.0
+  curriculum_end_difficulty: 6.0
+  curriculum_steps: 5000
+  
+  # Loss Weights
+  cursor_loss_weight: 1.0
+  timing_loss_weight: 0.5
+  key_loss_weight: 0.3
+  accuracy_loss_weight: 0.2
+  
+  # Validation
+  val_check_interval: 500
+  early_stopping_patience: 5
+  
+  # Checkpointing
+  save_interval: 1  # Save every epoch
+  save_top_k: 3
+  monitor_metric: "val_loss"
+  
+  # Logging
+  log_every_n_steps: 50
+  use_wandb: false  # Set to true if you want to use Weights & Biases
+  project_name: "osu-ai-replay-maker"
+
+# Data Configuration
+data:
+  replay_dir: "reduced_dataset_5/replays/npy"
+  beatmap_dir: "reduced_dataset_5/beatmaps"
+  csv_path: "reduced_dataset_5/index.csv"
+  
+  # Data Splits
+  train_split: 0.7
+  val_split: 0.2
+  test_split: 0.1
+  
+  # Sequence Processing
+  sequence_length: 1024
+  overlap_ratio: 0.5
+  min_sequence_length: 256
+  
+  # Data Filtering
+  min_accuracy: 0.8
+  max_accuracy: 1.0
+  min_star_rating: 1.0
+  max_star_rating: 8.0
+  
+  # Normalization
+  normalize_coordinates: true
+  coordinate_range: [0, 512]
+  normalize_timing: true
+  
+  # Data Augmentation
+  use_augmentation: true
+  rotation_range: 10.0
+  scale_range: [0.95, 1.05]
+  timing_jitter: 0.01
+  
+  # Loading
+  num_workers: 2  # Reduced for stability
+  pin_memory: true
+  prefetch_factor: 2
+  max_replays_in_memory: 500
+  cache_preprocessed: true
+
+# Generation Configuration
+generation:
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.9
+  repetition_penalty: 1.1
+  use_beam_search: false
+  beam_size: 5
+  max_generation_length: 4096
+  min_generation_length: 100
+  
+  # Default accuracy targets
+  target_300_ratio: 0.95
+  target_100_ratio: 0.04
+  target_50_ratio: 0.01
+  target_miss_ratio: 0.0
+  
+  # Post-processing
+  smooth_cursor_movement: true
+  smoothing_window: 5
+  enforce_hit_windows: true
