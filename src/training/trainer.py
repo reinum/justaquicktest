@@ -141,11 +141,20 @@ class OsuTrainer:
     def _setup_mixed_precision(self):
         """Setup mixed precision training."""
         if self.config.use_mixed_precision:
-            self.scaler = GradScaler()
+            # Use automatic loss scaling with overflow detection
+            self.scaler = GradScaler(
+                init_scale=2.**16,  # Start with higher scale
+                growth_factor=2.0,
+                backoff_factor=0.5,
+                growth_interval=2000,
+                enabled=True
+            )
             self.use_amp = True
+            self.overflow_count = 0
         else:
             self.scaler = None
             self.use_amp = False
+            self.overflow_count = 0
     
     def _setup_checkpointing(self):
         """Setup checkpointing directories."""
@@ -227,11 +236,31 @@ class OsuTrainer:
             self.optimizer.zero_grad()
             
             if self.use_amp:
+                # Check for overflow before backward pass
+                if torch.isnan(total_loss) or torch.isinf(total_loss):
+                    self.logger.warning(f"Loss overflow detected: {total_loss.item()}, skipping batch")
+                    self.overflow_count += 1
+                    continue
+                
                 self.scaler.scale(total_loss).backward()
                 
                 # Calculate gradient norm before clipping
                 if self.config.gradient_clip_norm > 0:
                     self.scaler.unscale_(self.optimizer)
+                    
+                    # Check for gradient overflow
+                    has_overflow = False
+                    for p in self.model.parameters():
+                        if p.grad is not None and (torch.isnan(p.grad).any() or torch.isinf(p.grad).any()):
+                            has_overflow = True
+                            break
+                    
+                    if has_overflow:
+                        self.logger.warning("Gradient overflow detected, skipping batch")
+                        self.overflow_count += 1
+                        self.scaler.update()
+                        continue
+                    
                     self._gradient_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 
                                                  self.config.gradient_clip_norm).item()
                 else:
@@ -243,8 +272,16 @@ class OsuTrainer:
                             total_norm += param_norm.item() ** 2
                     self._gradient_norm = total_norm ** (1. / 2)
                 
+                # Check if scaler will skip this step due to overflow
+                scale_before = self.scaler.get_scale()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+                scale_after = self.scaler.get_scale()
+                
+                # Log if scale was reduced (indicating overflow)
+                if scale_after < scale_before:
+                    self.overflow_count += 1
+                    self.logger.warning(f"Loss scale reduced from {scale_before} to {scale_after} due to overflow")
             else:
                 total_loss.backward()
                 
@@ -306,12 +343,40 @@ class OsuTrainer:
         epoch_time = time.time() - epoch_start_time
         self._samples_per_second = total_samples / epoch_time if epoch_time > 0 else 0
         
+        # Log epoch results
+        self.logger.info(f"Epoch {self.current_epoch + 1} completed:")
+        self.logger.info(f"  Time: {epoch_time:.2f}s")
+        self.logger.info(f"  Samples/sec: {self._samples_per_second:.2f}")
+        self.logger.info(f"  Gradient norm: {self._gradient_norm:.4f}")
+        self.logger.info(f"  Learning rate: {self.optimizer.param_groups[0]['lr']:.2e}")
+        
+        # Log overflow statistics for mixed precision
+        if self.use_amp:
+            self.logger.info(f"  Overflow count: {self.overflow_count}")
+            self.logger.info(f"  Loss scale: {self.scaler.get_scale():.0f}")
+        
         # Average losses and metrics
         num_batches = len(self.train_loader)
         avg_losses = {k: v / num_batches for k, v in epoch_losses.items()}
         avg_metrics = {k: v / num_batches for k, v in epoch_metrics.items()}
         
-        return {**avg_losses, **avg_metrics}
+        for key, value in avg_losses.items():
+            self.logger.info(f"  {key}: {value:.6f}")
+        
+        for key, value in avg_metrics.items():
+            self.logger.info(f"  {key}: {value:.6f}")
+        
+        # Prepare return dictionary
+        results = {**avg_losses, **avg_metrics}
+        results['samples_per_second'] = self._samples_per_second
+        results['gradient_norm'] = self._gradient_norm
+        results['learning_rate'] = self.optimizer.param_groups[0]['lr']
+        
+        if self.use_amp:
+            results['overflow_count'] = self.overflow_count
+            results['loss_scale'] = self.scaler.get_scale()
+        
+        return results
     
     def validate(self) -> Dict[str, float]:
         """Validate the model."""

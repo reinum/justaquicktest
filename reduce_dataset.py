@@ -51,7 +51,7 @@ def create_output_directory(output_dir):
     (output_path / "beatmaps").mkdir(exist_ok=True)
     (output_path / "replays").mkdir(exist_ok=True)
     (output_path / "replays" / "npy").mkdir(exist_ok=True)
-    (output_path / "replays" / "osr").mkdir(exist_ok=True)
+
     
     return output_path
 
@@ -106,7 +106,7 @@ def reduce_dataset(input_dir, output_dir, num_replays):
     # Initialize counters
     copied_beatmaps = 0
     copied_npy_replays = 0
-    copied_osr_replays = 0
+
     
     print(f"Copying {num_replays} replays...")
     
@@ -146,10 +146,7 @@ def reduce_dataset(input_dir, output_dir, num_replays):
         if copy_file_if_exists(npy_src, npy_dst, "npy replay"):
             copied_npy_replays += 1
         
-        osr_src = input_path / "replays" / "osr" / f"{replay_hash}.osr"
-        osr_dst = output_path / "replays" / "osr" / f"{replay_hash}.osr"
-        if copy_file_if_exists(osr_src, osr_dst, "osr replay"):
-            copied_osr_replays += 1
+
     
     # Save reduced index.csv
     output_index_path = output_path / "index.csv"
@@ -160,7 +157,7 @@ def reduce_dataset(input_dir, output_dir, num_replays):
     print("\n=== Copy Summary ===")
     print(f"Beatmaps copied: {copied_beatmaps}/{num_replays}")
     print(f"NPY replays copied: {copied_npy_replays}/{num_replays}")
-    print(f"OSR replays copied: {copied_osr_replays}/{num_replays}")
+
     print(f"\nReduced dataset saved to: {output_path}")
     
     return output_path

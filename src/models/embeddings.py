@@ -98,7 +98,7 @@ class AccuracyConditioning(nn.Module):
         # Project accuracy parameters to model dimension
         self.accuracy_projection = nn.Sequential(
             nn.Linear(accuracy_dim, d_model // 2),
-            nn.ReLU(),
+            nn.GELU(),  # Replace ReLU with GELU to prevent unbounded outputs
             nn.Linear(d_model // 2, d_model),
             nn.LayerNorm(d_model)
         )
@@ -115,15 +115,23 @@ class AccuracyConditioning(nn.Module):
         Returns:
             Conditioning vectors of shape (batch_size, d_model)
         """
+        # Clamp accuracy parameters to valid range [0, 1] to prevent overflow
+        accuracy_params = torch.clamp(accuracy_params, 0.0, 1.0)
+        
         # Project raw accuracy parameters
         accuracy_encoding = self.accuracy_projection(accuracy_params)
+        
+        # Clamp encoding to prevent FP16 overflow
+        accuracy_encoding = torch.clamp(accuracy_encoding, -65000, 65000)
         
         # Add categorical accuracy embedding based on overall accuracy
         overall_accuracy = accuracy_params[:, 0]  # Single accuracy value
         accuracy_category = torch.clamp((overall_accuracy * 20).long(), 0, 20)
         category_embedding = self.accuracy_embeddings(accuracy_category)
         
-        return accuracy_encoding + category_embedding
+        # Clamp final output to prevent FP16 overflow
+        result = accuracy_encoding + category_embedding
+        return torch.clamp(result, -65000, 65000)
 
 
 class BeatmapEncoder(nn.Module):
